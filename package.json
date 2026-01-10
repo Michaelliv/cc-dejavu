@@ -10,7 +10,8 @@
   "scripts": {
     "dev": "bun run src/index.ts",
     "build": "bun build --compile --outfile=ran ./src/index.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "postinstall": "echo '\n  Run \"ran onboard\" to add ran to ~/.claude/CLAUDE.md\n'"
   },
   "devDependencies": {
     "@types/bun": "latest"

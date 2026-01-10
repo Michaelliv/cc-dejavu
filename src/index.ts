@@ -3,6 +3,7 @@
 import { search } from "./commands/search";
 import { list } from "./commands/list";
 import { syncCommand } from "./commands/syncCmd";
+import { onboard } from "./commands/onboard";
 import { parseArgs } from "./cli";
 
 const args = process.argv.slice(2);
@@ -28,6 +29,9 @@ function printHelp(): void {
 
   sync               Sync command history from Claude sessions
     --force, -f      Force re-index all sessions
+
+  onboard            Add ran section to ~/.claude/CLAUDE.md
+    --force, -f      Update existing section
 
 \x1b[1mEXAMPLES:\x1b[0m
   ran search docker
@@ -66,6 +70,12 @@ switch (command) {
 
   case "sync":
     syncCommand({
+      force: flags.force as boolean,
+    });
+    break;
+
+  case "onboard":
+    onboard({
       force: flags.force as boolean,
     });
     break;
