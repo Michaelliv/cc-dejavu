@@ -13,19 +13,23 @@ Search and browse your Claude Code bash command history.
 ```
 
 ```bash
-$ ran search docker --limit 3
+$ ran search docker --limit 4
 
-[ok] docker build -t myapp .
-     Build the application image
-     1/15/2025, 10:30 AM | /projects/myapp
+[ok] docker build --no-cache --platform linux/amd64 -t ghcr.io/user/api-service:latest .
+     Rebuild without cache for production
+     12/30/2025, 12:46 AM | ~/projects/api-service
 
-[ok] docker push myapp:latest
+[ok] docker build -t api-service:test .
+     Build test image
+     12/30/2025, 12:45 AM | ~/projects/api-service
+
+[ok] docker run --rm api-service:test npm test
+     Run tests in container
+     12/30/2025, 12:46 AM | ~/projects/api-service
+
+[ok] docker push ghcr.io/user/api-service:latest
      Push to registry
-     1/15/2025, 10:35 AM | /projects/myapp
-
-[error] docker compose up -d
-     Start services
-     1/14/2025, 3:20 PM | /projects/api
+     12/30/2025, 12:48 AM | ~/projects/api-service
 ```
 
 Every bash command Claude Code runs is logged in session files. `ran` indexes them into a searchable database so you can find that command you ran last week, see what worked, and avoid repeating mistakes.
@@ -144,7 +148,27 @@ Each indexed command includes:
 
 ## For AI Agents
 
-If you're an AI agent (like Claude Code) reading this to understand the tool:
+Run `ran onboard` to add a section to `~/.claude/CLAUDE.md` so Claude knows how to search its own history:
+
+```bash
+ran onboard
+```
+
+This adds:
+
+```markdown
+## ran - Claude Code bash history
+
+Use the `ran` CLI to search commands from previous Claude Code sessions:
+
+- `ran search <pattern>` - Search by substring or regex (`--regex`)
+- `ran list` - Show recent commands
+- `ran search "" --cwd /path` - Filter by directory
+
+Example: "What docker command did you run?" → `ran search docker`
+```
+
+Now Claude knows how to search its own history.
 
 ### When to use `ran`
 
@@ -159,33 +183,6 @@ If you're an AI agent (like Claude Code) reading this to understand the tool:
 - Searching file contents → use `Grep`
 - Checking recent conversation context → already in your context
 - User's personal shell history → not indexed, only Claude's commands
-
-### Capabilities
-
-```
-ran search <pattern>
-  Flags: --regex, --cwd <path>, --limit <n>, --no-sync
-  Returns: Matching commands with status, description, timestamp, directory
-
-ran list
-  Flags: --limit <n>, --no-sync
-  Returns: Recent commands, newest first
-
-ran sync
-  Flags: --force
-  Returns: Count of files scanned and commands indexed
-```
-
-### Example workflow
-
-**User**: "What kubectl command did you use to check the pods?"
-
-**Agent**: Let me search my command history:
-```bash
-ran search kubectl --limit 10
-```
-
-Then relay the relevant command(s) to the user.
 
 ## Development
 
