@@ -1,8 +1,8 @@
 import { homedir } from "os";
 import { join } from "path";
 import { statSync, readFileSync, readdirSync, existsSync } from "fs";
-import { getIndexedFile, updateIndexedFile, insertCommand, getDb } from "./db";
-import type { Database } from "bun:sqlite";
+import { getIndexedFile, updateIndexedFile, insertCommand, getDb, saveDb } from "./db";
+import type { Database as SqlJsDatabase } from "sql.js";
 
 const CLAUDE_PROJECTS_DIR = join(homedir(), ".claude", "projects");
 
@@ -132,12 +132,13 @@ export function extractCommands(entries: MessageEntry[], sessionId: string | nul
 
 export interface SyncOptions {
   force?: boolean;
-  db?: Database;
+  db?: SqlJsDatabase;
   projectsDir?: string;
 }
 
-export function sync(options: SyncOptions = {}): SyncResult {
-  const { force = false, db = getDb(), projectsDir = CLAUDE_PROJECTS_DIR } = options;
+export async function sync(options: SyncOptions = {}): Promise<SyncResult> {
+  const { force = false, db, projectsDir = CLAUDE_PROJECTS_DIR } = options;
+  const database = db ?? await getDb();
 
   const result: SyncResult = {
     filesScanned: 0,
@@ -176,7 +177,7 @@ export function sync(options: SyncOptions = {}): SyncResult {
 
     try {
       const stat = statSync(filePath);
-      const indexed = getIndexedFile(filePath, db);
+      const indexed = await getIndexedFile(filePath, database);
 
       // Skip if already fully indexed (unless force)
       if (!force && indexed && indexed.last_byte_offset >= stat.size) {
@@ -184,19 +185,24 @@ export function sync(options: SyncOptions = {}): SyncResult {
       }
 
       const startOffset = force ? 0 : (indexed?.last_byte_offset ?? 0);
-      const newCommands = indexFile(filePath, startOffset, db);
+      const newCommands = await indexFile(filePath, startOffset, database);
       result.newCommands += newCommands;
 
-      updateIndexedFile(filePath, stat.size, stat.mtimeMs, db);
+      await updateIndexedFile(filePath, stat.size, stat.mtimeMs, database);
     } catch (e) {
       result.errors.push(`Error processing ${filePath}: ${e}`);
     }
   }
 
+  // Save db if using default instance
+  if (!db) {
+    saveDb(database);
+  }
+
   return result;
 }
 
-function indexFile(filePath: string, startOffset: number, db: Database): number {
+async function indexFile(filePath: string, startOffset: number, db: SqlJsDatabase): Promise<number> {
   const content = readFileSync(filePath, "utf-8");
   const lines = content.split("\n");
 
@@ -221,7 +227,7 @@ function indexFile(filePath: string, startOffset: number, db: Database): number 
   const commands = parseJsonlContent(newContent, sessionId);
 
   for (const cmd of commands) {
-    insertCommand(cmd, db);
+    await insertCommand(cmd, db);
   }
 
   return commands.length;

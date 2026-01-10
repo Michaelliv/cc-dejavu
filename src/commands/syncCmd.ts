@@ -5,10 +5,10 @@ export interface SyncOptions {
   force?: boolean;
 }
 
-export function syncCommand(options: SyncOptions = {}): void {
+export async function syncCommand(options: SyncOptions = {}): Promise<void> {
   console.log(options.force ? "Force re-indexing all sessions..." : "Syncing new commands...");
 
-  const result = doSync({ force: options.force });
+  const result = await doSync({ force: options.force });
 
   console.log(`\nScanned ${result.filesScanned} file(s)`);
   console.log(`Indexed ${result.newCommands} new command(s)`);
@@ -20,6 +20,6 @@ export function syncCommand(options: SyncOptions = {}): void {
     }
   }
 
-  const stats = getStats();
+  const stats = await getStats();
   console.log(`\nTotal: ${stats.totalCommands} commands from ${stats.indexedFiles} session files`);
 }

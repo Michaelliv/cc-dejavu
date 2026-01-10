@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 
 import { search } from "./commands/search";
 import { list } from "./commands/list";
@@ -42,53 +42,60 @@ function printHelp(): void {
 `);
 }
 
-const { flags, positional } = parseArgs(args.slice(1));
+async function main(): Promise<void> {
+  const { flags, positional } = parseArgs(args.slice(1));
 
-switch (command) {
-  case "search":
-  case "s":
-    if (positional.length === 0) {
-      console.error("Error: search requires a pattern");
+  switch (command) {
+    case "search":
+    case "s":
+      if (positional.length === 0) {
+        console.error("Error: search requires a pattern");
+        process.exit(1);
+      }
+      await search(positional[0], {
+        regex: flags.regex as boolean,
+        cwd: flags.cwd as string,
+        limit: flags.limit ? parseInt(flags.limit as string, 10) : undefined,
+        noSync: flags.noSync as boolean,
+      });
+      break;
+
+    case "list":
+    case "ls":
+    case "l":
+      await list({
+        limit: flags.limit ? parseInt(flags.limit as string, 10) : undefined,
+        noSync: flags.noSync as boolean,
+      });
+      break;
+
+    case "sync":
+      await syncCommand({
+        force: flags.force as boolean,
+      });
+      break;
+
+    case "onboard":
+      onboard({
+        force: flags.force as boolean,
+      });
+      break;
+
+    case "help":
+    case "--help":
+    case "-h":
+    case undefined:
+      printHelp();
+      break;
+
+    default:
+      console.error(`Unknown command: ${command}`);
+      printHelp();
       process.exit(1);
-    }
-    search(positional[0], {
-      regex: flags.regex as boolean,
-      cwd: flags.cwd as string,
-      limit: flags.limit ? parseInt(flags.limit as string, 10) : undefined,
-      noSync: flags.noSync as boolean,
-    });
-    break;
-
-  case "list":
-  case "ls":
-  case "l":
-    list({
-      limit: flags.limit ? parseInt(flags.limit as string, 10) : undefined,
-      noSync: flags.noSync as boolean,
-    });
-    break;
-
-  case "sync":
-    syncCommand({
-      force: flags.force as boolean,
-    });
-    break;
-
-  case "onboard":
-    onboard({
-      force: flags.force as boolean,
-    });
-    break;
-
-  case "help":
-  case "--help":
-  case "-h":
-  case undefined:
-    printHelp();
-    break;
-
-  default:
-    console.error(`Unknown command: ${command}`);
-    printHelp();
-    process.exit(1);
+  }
 }
+
+main().catch((err) => {
+  console.error("Error:", err.message);
+  process.exit(1);
+});

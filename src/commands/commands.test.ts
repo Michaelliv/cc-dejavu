@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { search } from "./search";
 import { list } from "./list";
 import { syncCommand } from "./syncCmd";
 import { createDb, insertCommand, setDb } from "../db";
-import type { Database } from "bun:sqlite";
+import type { Database } from "sql.js";
 
 describe("command modules", () => {
   let db: Database;
@@ -12,8 +12,8 @@ describe("command modules", () => {
   let originalLog: typeof console.log;
   let originalError: typeof console.error;
 
-  beforeEach(() => {
-    db = createDb(":memory:");
+  beforeEach(async () => {
+    db = await createDb(":memory:");
     setDb(db);
 
     // Capture console output
@@ -25,7 +25,7 @@ describe("command modules", () => {
     console.error = (...args: unknown[]) => consoleErrorLogs.push(args.join(" "));
 
     // Seed test data
-    insertCommand({
+    await insertCommand({
       tool_use_id: "t1",
       command: "docker build -t app .",
       description: "Build docker image",
@@ -37,7 +37,7 @@ describe("command modules", () => {
       session_id: "s1",
     }, db);
 
-    insertCommand({
+    await insertCommand({
       tool_use_id: "t2",
       command: "npm test",
       description: "Run tests",
@@ -49,7 +49,7 @@ describe("command modules", () => {
       session_id: "s1",
     }, db);
 
-    insertCommand({
+    await insertCommand({
       tool_use_id: "t3",
       command: "docker push app",
       description: "Push image",
@@ -68,43 +68,43 @@ describe("command modules", () => {
   });
 
   describe("search", () => {
-    it("finds commands by substring", () => {
-      search("docker", { noSync: true });
+    it("finds commands by substring", async () => {
+      await search("docker", { noSync: true });
 
       expect(consoleLogs.some(l => l.includes("Found 2 command(s)"))).toBe(true);
       expect(consoleLogs.some(l => l.includes("docker build"))).toBe(true);
       expect(consoleLogs.some(l => l.includes("docker push"))).toBe(true);
     });
 
-    it("filters by regex", () => {
-      search("docker (build|push)", { regex: true, noSync: true });
+    it("filters by regex", async () => {
+      await search("docker (build|push)", { regex: true, noSync: true });
 
       expect(consoleLogs.some(l => l.includes("Found 2 command(s)"))).toBe(true);
     });
 
-    it("filters by cwd", () => {
-      search("docker", { cwd: "/projects/app", noSync: true });
+    it("filters by cwd", async () => {
+      await search("docker", { cwd: "/projects/app", noSync: true });
 
       expect(consoleLogs.some(l => l.includes("Found 1 command(s)"))).toBe(true);
       expect(consoleLogs.some(l => l.includes("docker build"))).toBe(true);
     });
 
-    it("respects limit", () => {
-      search("docker", { limit: 1, noSync: true });
+    it("respects limit", async () => {
+      await search("docker", { limit: 1, noSync: true });
 
       expect(consoleLogs.some(l => l.includes("(showing 1)"))).toBe(true);
     });
 
-    it("shows message when no matches", () => {
-      search("nonexistent", { noSync: true });
+    it("shows message when no matches", async () => {
+      await search("nonexistent", { noSync: true });
 
       expect(consoleLogs.some(l => l.includes("No commands found matching:"))).toBe(true);
     });
   });
 
   describe("list", () => {
-    it("lists recent commands", () => {
-      list({ noSync: true });
+    it("lists recent commands", async () => {
+      await list({ noSync: true });
 
       expect(consoleLogs.some(l => l.includes("Last 3 command(s)"))).toBe(true);
       expect(consoleLogs.some(l => l.includes("docker push"))).toBe(true);
@@ -112,27 +112,27 @@ describe("command modules", () => {
       expect(consoleLogs.some(l => l.includes("docker build"))).toBe(true);
     });
 
-    it("respects limit", () => {
-      list({ limit: 2, noSync: true });
+    it("respects limit", async () => {
+      await list({ limit: 2, noSync: true });
 
       expect(consoleLogs.some(l => l.includes("Last 2 command(s)"))).toBe(true);
     });
 
-    it("shows message when no commands", () => {
+    it("shows message when no commands", async () => {
       // Clear db
-      const emptyDb = createDb(":memory:");
+      const emptyDb = await createDb(":memory:");
       setDb(emptyDb);
 
-      list({ noSync: true });
+      await list({ noSync: true });
 
       expect(consoleLogs.some(l => l.includes("No commands in history"))).toBe(true);
     });
   });
 
   describe("syncCommand", () => {
-    it("displays sync results", () => {
+    it("displays sync results", async () => {
       // This will try to sync from real claude dir, so just check output format
-      syncCommand({ force: false });
+      await syncCommand({ force: false });
 
       expect(consoleLogs.some(l => l.includes("Syncing new commands..."))).toBe(true);
       expect(consoleLogs.some(l => l.includes("Scanned"))).toBe(true);
@@ -140,8 +140,8 @@ describe("command modules", () => {
       expect(consoleLogs.some(l => l.includes("Total:"))).toBe(true);
     });
 
-    it("shows force message when force is true", () => {
-      syncCommand({ force: true });
+    it("shows force message when force is true", async () => {
+      await syncCommand({ force: true });
 
       expect(consoleLogs.some(l => l.includes("Force re-indexing"))).toBe(true);
     });

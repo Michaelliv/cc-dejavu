@@ -1,7 +1,7 @@
-import { Database } from "bun:sqlite";
+import initSqlJs, { type Database as SqlJsDatabase } from "sql.js";
 import { homedir } from "os";
 import { join } from "path";
-import { mkdirSync, existsSync } from "fs";
+import { mkdirSync, existsSync, readFileSync, writeFileSync } from "fs";
 
 export interface Command {
   id: number;
@@ -22,7 +22,13 @@ export interface IndexedFile {
   last_modified: number;
 }
 
-function initSchema(db: Database): void {
+const DATA_DIR = join(homedir(), ".ran");
+const DB_PATH = join(DATA_DIR, "history.db");
+
+let _db: SqlJsDatabase | null = null;
+let _dbPath: string | null = null;
+
+function initSchema(db: SqlJsDatabase): void {
   db.run(`
     CREATE TABLE IF NOT EXISTS commands (
       id INTEGER PRIMARY KEY,
@@ -50,113 +56,163 @@ function initSchema(db: Database): void {
   db.run(`CREATE INDEX IF NOT EXISTS idx_commands_timestamp ON commands(timestamp)`);
 }
 
-export function createDb(dbPath?: string): Database {
+export async function createDb(dbPath?: string): Promise<SqlJsDatabase> {
+  const SQL = await initSqlJs();
+
   if (dbPath === ":memory:") {
-    const db = new Database(":memory:");
+    const db = new SQL.Database();
     initSchema(db);
     return db;
   }
 
-  const DATA_DIR = join(homedir(), ".ran");
-  const DB_PATH = dbPath ?? join(DATA_DIR, "history.db");
+  const path = dbPath ?? DB_PATH;
 
   if (!existsSync(DATA_DIR)) {
     mkdirSync(DATA_DIR, { recursive: true });
   }
 
-  const db = new Database(DB_PATH);
+  let db: SqlJsDatabase;
+  if (existsSync(path)) {
+    const buffer = readFileSync(path);
+    db = new SQL.Database(buffer);
+  } else {
+    db = new SQL.Database();
+  }
+
   initSchema(db);
   return db;
 }
 
-// Default instance for production use
-let _db: Database | null = null;
-
-export function getDb(): Database {
+export async function getDb(): Promise<SqlJsDatabase> {
   if (!_db) {
-    _db = createDb();
+    _db = await createDb();
+    _dbPath = DB_PATH;
   }
   return _db;
 }
 
-// For testing: allows replacing the db instance
-export function setDb(db: Database): void {
+export function setDb(db: SqlJsDatabase, path?: string): void {
   _db = db;
+  _dbPath = path ?? null;
 }
 
-export function insertCommand(cmd: Omit<Command, "id">, db = getDb()): void {
-  const stmt = db.prepare(`
-    INSERT OR IGNORE INTO commands
+export function saveDb(db: SqlJsDatabase, path?: string): void {
+  const savePath = path ?? _dbPath ?? DB_PATH;
+  const dir = savePath.substring(0, savePath.lastIndexOf("/"));
+  if (dir && !existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  const data = db.export();
+  const buffer = Buffer.from(data);
+  writeFileSync(savePath, buffer);
+}
+
+export async function insertCommand(cmd: Omit<Command, "id">, db?: SqlJsDatabase): Promise<void> {
+  const database = db ?? await getDb();
+  database.run(
+    `INSERT OR IGNORE INTO commands
     (tool_use_id, command, description, cwd, stdout, stderr, is_error, timestamp, session_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  stmt.run(
-    cmd.tool_use_id,
-    cmd.command,
-    cmd.description,
-    cmd.cwd,
-    cmd.stdout,
-    cmd.stderr,
-    cmd.is_error,
-    cmd.timestamp,
-    cmd.session_id
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      cmd.tool_use_id,
+      cmd.command,
+      cmd.description,
+      cmd.cwd,
+      cmd.stdout,
+      cmd.stderr,
+      cmd.is_error,
+      cmd.timestamp,
+      cmd.session_id,
+    ]
   );
+  if (!db) saveDb(database);
 }
 
-export function updateIndexedFile(filePath: string, byteOffset: number, mtime: number, db = getDb()): void {
-  const stmt = db.prepare(`
-    INSERT OR REPLACE INTO indexed_files (file_path, last_byte_offset, last_modified)
-    VALUES (?, ?, ?)
-  `);
-  stmt.run(filePath, byteOffset, mtime);
+export async function updateIndexedFile(filePath: string, byteOffset: number, mtime: number, db?: SqlJsDatabase): Promise<void> {
+  const database = db ?? await getDb();
+  database.run(
+    `INSERT OR REPLACE INTO indexed_files (file_path, last_byte_offset, last_modified)
+    VALUES (?, ?, ?)`,
+    [filePath, byteOffset, mtime]
+  );
+  if (!db) saveDb(database);
 }
 
-export function getIndexedFile(filePath: string, db = getDb()): IndexedFile | null {
-  const stmt = db.prepare(`SELECT * FROM indexed_files WHERE file_path = ?`);
-  return stmt.get(filePath) as IndexedFile | null;
+export async function getIndexedFile(filePath: string, db?: SqlJsDatabase): Promise<IndexedFile | null> {
+  const database = db ?? await getDb();
+  const stmt = database.prepare(`SELECT * FROM indexed_files WHERE file_path = ?`);
+  stmt.bind([filePath]);
+
+  if (stmt.step()) {
+    const row = stmt.getAsObject() as IndexedFile;
+    stmt.free();
+    return row;
+  }
+  stmt.free();
+  return null;
 }
 
-export function searchCommands(pattern: string, useRegex: boolean, cwd?: string, db = getDb()): Command[] {
+export async function searchCommands(pattern: string, useRegex: boolean, cwd?: string, db?: SqlJsDatabase): Promise<Command[]> {
+  const database = db ?? await getDb();
+
   if (useRegex) {
-    const query = `SELECT * FROM commands ORDER BY timestamp DESC`;
-    const results = db.prepare(query).all() as Command[];
+    const results: Command[] = [];
+    const stmt = database.prepare(`SELECT * FROM commands ORDER BY timestamp DESC`);
     const regex = new RegExp(pattern, "i");
-    return results.filter((r) => {
-      if (!regex.test(r.command)) return false;
-      if (cwd && r.cwd !== cwd) return false;
-      return true;
-    });
+
+    while (stmt.step()) {
+      const row = stmt.getAsObject() as Command;
+      if (regex.test(row.command) && (!cwd || row.cwd === cwd)) {
+        results.push(row);
+      }
+    }
+    stmt.free();
+    return results;
   }
 
-  if (cwd) {
-    const stmt = db.prepare(`
-      SELECT * FROM commands
-      WHERE command LIKE ? AND cwd = ?
-      ORDER BY timestamp DESC
-    `);
-    return stmt.all(`%${pattern}%`, cwd) as Command[];
+  const results: Command[] = [];
+  const sql = cwd
+    ? `SELECT * FROM commands WHERE command LIKE ? AND cwd = ? ORDER BY timestamp DESC`
+    : `SELECT * FROM commands WHERE command LIKE ? ORDER BY timestamp DESC`;
+  const params = cwd ? [`%${pattern}%`, cwd] : [`%${pattern}%`];
+
+  const stmt = database.prepare(sql);
+  stmt.bind(params);
+
+  while (stmt.step()) {
+    results.push(stmt.getAsObject() as Command);
   }
-
-  const stmt = db.prepare(`
-    SELECT * FROM commands
-    WHERE command LIKE ?
-    ORDER BY timestamp DESC
-  `);
-  return stmt.all(`%${pattern}%`) as Command[];
+  stmt.free();
+  return results;
 }
 
-export function listCommands(limit: number = 20, db = getDb()): Command[] {
-  const stmt = db.prepare(`
-    SELECT * FROM commands
-    ORDER BY timestamp DESC
-    LIMIT ?
-  `);
-  return stmt.all(limit) as Command[];
+export async function listCommands(limit: number = 20, db?: SqlJsDatabase): Promise<Command[]> {
+  const database = db ?? await getDb();
+  const results: Command[] = [];
+
+  const stmt = database.prepare(`SELECT * FROM commands ORDER BY timestamp DESC LIMIT ?`);
+  stmt.bind([limit]);
+
+  while (stmt.step()) {
+    results.push(stmt.getAsObject() as Command);
+  }
+  stmt.free();
+  return results;
 }
 
-export function getStats(db = getDb()): { totalCommands: number; indexedFiles: number } {
-  const commands = db.prepare(`SELECT COUNT(*) as count FROM commands`).get() as { count: number };
-  const files = db.prepare(`SELECT COUNT(*) as count FROM indexed_files`).get() as { count: number };
+export async function getStats(db?: SqlJsDatabase): Promise<{ totalCommands: number; indexedFiles: number }> {
+  const database = db ?? await getDb();
+
+  const cmdStmt = database.prepare(`SELECT COUNT(*) as count FROM commands`);
+  cmdStmt.step();
+  const commands = cmdStmt.getAsObject() as { count: number };
+  cmdStmt.free();
+
+  const fileStmt = database.prepare(`SELECT COUNT(*) as count FROM indexed_files`);
+  fileStmt.step();
+  const files = fileStmt.getAsObject() as { count: number };
+  fileStmt.free();
+
   return {
     totalCommands: commands.count,
     indexedFiles: files.count,

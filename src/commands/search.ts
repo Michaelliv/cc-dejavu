@@ -9,13 +9,13 @@ export interface SearchOptions {
   noSync?: boolean;
 }
 
-export function search(pattern: string, options: SearchOptions = {}): void {
+export async function search(pattern: string, options: SearchOptions = {}): Promise<void> {
   // Auto-sync before searching (unless disabled)
   if (!options.noSync) {
-    sync();
+    await sync();
   }
 
-  const results = searchCommands(pattern, options.regex ?? false, options.cwd);
+  const results = await searchCommands(pattern, options.regex ?? false, options.cwd);
   const limited = options.limit ? results.slice(0, options.limit) : results;
 
   if (limited.length === 0) {

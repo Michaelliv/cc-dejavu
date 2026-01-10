@@ -7,14 +7,14 @@ export interface ListOptions {
   noSync?: boolean;
 }
 
-export function list(options: ListOptions = {}): void {
+export async function list(options: ListOptions = {}): Promise<void> {
   // Auto-sync before listing (unless disabled)
   if (!options.noSync) {
-    sync();
+    await sync();
   }
 
   const limit = options.limit ?? 20;
-  const results = listCommands(limit);
+  const results = await listCommands(limit);
 
   if (results.length === 0) {
     console.log("No commands in history.");

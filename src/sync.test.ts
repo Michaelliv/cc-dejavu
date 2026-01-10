@@ -4,7 +4,7 @@ import { createDb, listCommands, getIndexedFile } from "./db";
 import { mkdirSync, writeFileSync, rmSync, appendFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import type { Database } from "bun:sqlite";
+import type { Database } from "sql.js";
 
 describe("sync", () => {
   describe("parseJsonlContent", () => {
@@ -273,23 +273,23 @@ also not valid
       return `${assistant}\n${user}\n`;
     };
 
-    beforeEach(() => {
+    beforeEach(async () => {
       tempDir = join(tmpdir(), `ran-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
       mkdirSync(tempDir, { recursive: true });
-      db = createDb(":memory:");
+      db = await createDb(":memory:");
     });
 
     afterEach(() => {
       rmSync(tempDir, { recursive: true, force: true });
     });
 
-    it("returns error when projects dir does not exist", () => {
-      const result = sync({ db, projectsDir: "/nonexistent/path" });
+    it("returns error when projects dir does not exist", async () => {
+      const result = await sync({ db, projectsDir: "/nonexistent/path" });
       expect(result.errors).toHaveLength(1);
       expect(result.errors[0]).toContain("not found");
     });
 
-    it("scans jsonl files in project subdirectories", () => {
+    it("scans jsonl files in project subdirectories", async () => {
       // Create project structure
       const projectDir = join(tempDir, "project-foo");
       mkdirSync(projectDir);
@@ -298,18 +298,18 @@ also not valid
         createJsonlEntry("t1", "echo hello", "hello")
       );
 
-      const result = sync({ db, projectsDir: tempDir });
+      const result = await sync({ db, projectsDir: tempDir });
 
       expect(result.filesScanned).toBe(1);
       expect(result.newCommands).toBe(1);
       expect(result.errors).toHaveLength(0);
 
-      const commands = listCommands(10, db);
+      const commands = await listCommands(10, db);
       expect(commands).toHaveLength(1);
       expect(commands[0].command).toBe("echo hello");
     });
 
-    it("indexes multiple files across projects", () => {
+    it("indexes multiple files across projects", async () => {
       // Project 1
       const project1 = join(tempDir, "project-one");
       mkdirSync(project1);
@@ -321,108 +321,108 @@ also not valid
       mkdirSync(project2);
       writeFileSync(join(project2, "s3.jsonl"), createJsonlEntry("t3", "docker build", "success"));
 
-      const result = sync({ db, projectsDir: tempDir });
+      const result = await sync({ db, projectsDir: tempDir });
 
       expect(result.filesScanned).toBe(3);
       expect(result.newCommands).toBe(3);
 
-      const commands = listCommands(10, db);
+      const commands = await listCommands(10, db);
       expect(commands).toHaveLength(3);
     });
 
-    it("skips already indexed files on subsequent sync", () => {
+    it("skips already indexed files on subsequent sync", async () => {
       const projectDir = join(tempDir, "project");
       mkdirSync(projectDir);
       writeFileSync(join(projectDir, "session.jsonl"), createJsonlEntry("t1", "first", "output"));
 
       // First sync
-      const result1 = sync({ db, projectsDir: tempDir });
+      const result1 = await sync({ db, projectsDir: tempDir });
       expect(result1.newCommands).toBe(1);
 
       // Second sync - should skip
-      const result2 = sync({ db, projectsDir: tempDir });
+      const result2 = await sync({ db, projectsDir: tempDir });
       expect(result2.filesScanned).toBe(1);
       expect(result2.newCommands).toBe(0);
     });
 
-    it("indexes only new content in appended files", () => {
+    it("indexes only new content in appended files", async () => {
       const projectDir = join(tempDir, "project");
       mkdirSync(projectDir);
       const filePath = join(projectDir, "session.jsonl");
 
       // Initial content
       writeFileSync(filePath, createJsonlEntry("t1", "first", "output1"));
-      sync({ db, projectsDir: tempDir });
+      await sync({ db, projectsDir: tempDir });
 
       // Append new content
       appendFileSync(filePath, createJsonlEntry("t2", "second", "output2"));
-      const result = sync({ db, projectsDir: tempDir });
+      const result = await sync({ db, projectsDir: tempDir });
 
       expect(result.newCommands).toBe(1);
 
-      const commands = listCommands(10, db);
+      const commands = await listCommands(10, db);
       expect(commands).toHaveLength(2);
     });
 
-    it("force flag re-indexes all files", () => {
+    it("force flag re-indexes all files", async () => {
       const projectDir = join(tempDir, "project");
       mkdirSync(projectDir);
       writeFileSync(join(projectDir, "session.jsonl"), createJsonlEntry("t1", "cmd", "out"));
 
       // First sync
-      sync({ db, projectsDir: tempDir });
+      await sync({ db, projectsDir: tempDir });
 
       // Force sync - re-indexes (but dedupes via tool_use_id)
-      const result = sync({ db, projectsDir: tempDir, force: true });
+      const result = await sync({ db, projectsDir: tempDir, force: true });
       expect(result.newCommands).toBe(1); // Parsed again, but INSERT OR IGNORE
 
-      const commands = listCommands(10, db);
+      const commands = await listCommands(10, db);
       expect(commands).toHaveLength(1); // Still only 1 due to dedup
     });
 
-    it("tracks indexed file state correctly", () => {
+    it("tracks indexed file state correctly", async () => {
       const projectDir = join(tempDir, "project");
       mkdirSync(projectDir);
       const filePath = join(projectDir, "session.jsonl");
       writeFileSync(filePath, createJsonlEntry("t1", "test", "output"));
 
-      sync({ db, projectsDir: tempDir });
+      await sync({ db, projectsDir: tempDir });
 
-      const indexed = getIndexedFile(filePath, db);
+      const indexed = await getIndexedFile(filePath, db);
       expect(indexed).not.toBeNull();
       expect(indexed!.last_byte_offset).toBeGreaterThan(0);
     });
 
-    it("ignores non-jsonl files", () => {
+    it("ignores non-jsonl files", async () => {
       const projectDir = join(tempDir, "project");
       mkdirSync(projectDir);
       writeFileSync(join(projectDir, "session.jsonl"), createJsonlEntry("t1", "valid", "out"));
       writeFileSync(join(projectDir, "notes.txt"), "some notes");
       writeFileSync(join(projectDir, "data.json"), "{}");
 
-      const result = sync({ db, projectsDir: tempDir });
+      const result = await sync({ db, projectsDir: tempDir });
 
       expect(result.filesScanned).toBe(1);
       expect(result.newCommands).toBe(1);
     });
 
-    it("ignores files in root projects dir (only scans subdirs)", () => {
+    it("ignores files in root projects dir (only scans subdirs)", async () => {
       writeFileSync(join(tempDir, "root.jsonl"), createJsonlEntry("t1", "root", "out"));
 
-      const result = sync({ db, projectsDir: tempDir });
+      const result = await sync({ db, projectsDir: tempDir });
 
       expect(result.filesScanned).toBe(0);
       expect(result.newCommands).toBe(0);
     });
 
-    it("extracts session_id from filename", () => {
+    it("extracts session_id from filename", async () => {
       const projectDir = join(tempDir, "project");
       mkdirSync(projectDir);
       writeFileSync(join(projectDir, "abc-123-session.jsonl"), createJsonlEntry("t1", "cmd", "out"));
 
-      sync({ db, projectsDir: tempDir });
+      await sync({ db, projectsDir: tempDir });
 
-      const commands = listCommands(10, db);
+      const commands = await listCommands(10, db);
       expect(commands[0].session_id).toBe("abc-123-session");
     });
   });
