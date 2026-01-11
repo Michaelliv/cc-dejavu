@@ -1,7 +1,10 @@
 import initSqlJs, { type Database as SqlJsDatabase } from "sql.js";
+import { createRequire } from "module";
 import { homedir } from "os";
 import { join } from "path";
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "fs";
+
+const require = createRequire(import.meta.url);
 
 export interface Command {
   id: number;
@@ -57,7 +60,10 @@ function initSchema(db: SqlJsDatabase): void {
 }
 
 export async function createDb(dbPath?: string): Promise<SqlJsDatabase> {
-  const SQL = await initSqlJs();
+  const wasmPath = require.resolve("sql.js/dist/sql-wasm.wasm");
+  const SQL = await initSqlJs({
+    locateFile: () => wasmPath,
+  });
 
   if (dbPath === ":memory:") {
     const db = new SQL.Database();

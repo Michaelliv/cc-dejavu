@@ -1,6 +1,6 @@
 {
   "name": "clauderan",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "CLI tool to search and browse Claude Code bash command history",
   "license": "MIT",
   "type": "module",
