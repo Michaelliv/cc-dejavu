@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/hero.gif" alt="deja" width="600">
+  <img src="assets/hero.gif" alt="deja">
 </p>
 
 # deja
