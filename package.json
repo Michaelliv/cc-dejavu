@@ -14,7 +14,7 @@
   },
   "description": "CLI tool to search and browse Claude Code bash command history",
   "files": [
-    "dist"
+    "dist/index.js"
   ],
   "keywords": [
     "claude",
