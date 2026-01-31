@@ -6,7 +6,7 @@ import { syncCommand } from "./commands/syncCmd";
 import { onboard } from "./commands/onboard";
 import { parseArgs } from "./cli";
 
-const VERSION = "0.4.0";
+const VERSION = "0.4.1";
 const REPO_URL = "https://github.com/Michaelliv/cc-dejavu";
 
 const args = process.argv.slice(2);
